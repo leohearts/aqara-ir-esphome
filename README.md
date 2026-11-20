@@ -151,10 +151,10 @@ reboot
 Edit `irgen.yaml`, rebuild and install `irgen` from a browser, switch encoders. The P3 only serves a
 tiny page and moves files; ESPHome codegen (Pyodide) and the MIPS compile (Clang/LLD in WebAssembly, see
 [toolchain/](toolchain/README.md)) run in your browser, loaded from GitHub Pages. The P3 stays offline.
-A build takes about 90 s; the first one downloads ~150 MB. Downloads stay in the browser's HTTP cache,
-compiled objects in IndexedDB (keyed by compiler args, sysroot, headers and source; the browser decides
-when to evict them), so a rebuild that only changes the YAML takes a few seconds of compiling.
-"Clear build cache (N MB)" empties the object cache; the HTTP cache is the browser's to clear.
+A build takes about 90 s; the first one downloads ~150 MB. The page served by the P3 keeps every download
+and every compiled object in IndexedDB (network first, the stored copy when offline; the browser decides
+when to evict it), so after one build the UI also works without internet, and a rebuild that only
+changes the YAML compiles one file. "Clear build cache (N MB)" empties it.
 
 ```sh
 ./device/web/build.sh                       # -> device/web/tcpsvd-lite (busybox has no httpd/inetd)
