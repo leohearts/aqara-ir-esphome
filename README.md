@@ -11,7 +11,7 @@ It is also a cloud product pretending to be a local one.
 
 The P3 can only build IR codes on the device for 7 brands (Gree, Midea, Haier, Aux, Chigo, Panasonic,
 Mitsubishi, see `protocol_ac_judge` in `libha_ir.so`), and only for a handful of remotes. Every other
-remote lives in Aqara's cloud: when you pick a remote, the P3 asks the cloud (resource `200.2.14`) for a
+remote lives in the vendor cloud: when you pick a remote, the P3 asks the cloud (resource `200.2.14`) for a
 download URL and fetches the code file from there.
 
 My P3 runs in LAN mode with telnet and no internet, because IoT devices don't get to go online here.
