@@ -1,0 +1,38 @@
+# Builds the P3 install tarball (libirplug.so, web UI, install.sh) and attaches it to the release.
+# libirplug.so is linked against an empty stand-in for libha_ir.so, see src/irplug/build.sh.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ziglang
+      - name: Build tarball
+        run: sh device/pack.sh
+      - name: Check libirplug.so
+        run: |
+          readelf -d src/irplug/libirplug.so | grep 'NEEDED.*\[libha_ir.so\]'
+          readelf --dyn-syms src/irplug/libirplug.so | grep -w 'ha_ir_open'
+          readelf --dyn-syms src/irplug/libirplug.so | grep -w 'protocol_ac_sync'
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" aqara-ir-esphome-p3.tar.gz --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --notes "Install tarball for the Aqara P3, see the README." ||
+          gh release upload "$GITHUB_REF_NAME" aqara-ir-esphome-p3.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: aqara-ir-esphome-p3
+          path: aqara-ir-esphome-p3.tar.gz
