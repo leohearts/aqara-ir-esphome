@@ -4,8 +4,79 @@
 <title>Aqara P3 · ESPHome IR</title>
 <p>Loading the web UI from GitHub Pages…</p>
 <script type="module">
-  // The P3 only serves this page and /api/*; the UI and the WebAssembly toolchain come from GitHub Pages.
+  // The P3 only serves this page and /api/*; the UI and the WebAssembly toolchain come from GitHub Pages
+  // and CDNs. This loader keeps every one of those downloads in IndexedDB, so after one build the page
+  // also works offline (http:// pages get no Service Worker or Cache Storage). It runs here and, via
+  // loaderSource, at the start of the build worker.
+  function loader() {
+    const db = new Promise((resolve, reject) => {
+      const r = indexedDB.open('aqara-ir-esphome', 2);
+      r.onupgradeneeded = () => {
+        for (const s of [...r.result.objectStoreNames]) r.result.deleteObjectStore(s);
+        r.result.createObjectStore('data'); // key -> {data: Uint8Array, type}
+        r.result.createObjectStore('meta'); // key -> {size, tag}, read without loading the data
+      };
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
+    const tx = (mode, op) => db.then(d => new Promise((resolve, reject) => {
+      const t = d.transaction(['data', 'meta'], mode);
+      const r = op(t.objectStore('data'), t.objectStore('meta'));
+      t.oncomplete = () => resolve(r?.result);
+      t.onerror = () => reject(t.error);
+    }));
+    // Downloads (keyed by URL) and compiled objects (keyed by build.js); the browser may evict both.
+    const cache = globalThis.buildCache = {
+      get: key => tx('readonly', d => d.get(key)),
+      tag: key => tx('readonly', (d, m) => m.get(key)).then(m => m?.tag),
+      put: (key, value, tag = null) => tx('readwrite', (d, m) => {
+        m.put({ size: value.data.byteLength, tag }, key);
+        d.put(value, key);
+      }),
+      size: () => tx('readonly', (d, m) => m.getAll()).then(a => a.reduce((n, m) => n + m.size, 0)),
+      clear: () => tx('readwrite', (d, m) => { d.clear(); m.clear(); }),
+    };
+
+    // Other-origin GETs: network first and keep a copy; the copy answers when the network fails.
+    const net = globalThis.fetch.bind(globalThis);
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(input?.url ?? input, location.href).href;
+      if (new URL(url).origin === location.origin || (init?.method ?? input?.method ?? 'GET') !== 'GET')
+        return net(input, init);
+      let res, err;
+      try { res = await net(input, init); } catch (e) { err = e; }
+      if (res?.ok) {
+        const type = res.headers.get('content-type') ?? '';
+        const tag = `${res.headers.get('last-modified')}|${res.headers.get('content-length')}`;
+        const data = new Uint8Array(await res.arrayBuffer());
+        if (tag.includes('null') || tag !== await cache.tag(url)) await cache.put(url, { data, type }, tag);
+        return new Response(data, { headers: { 'content-type': type } });
+      }
+      const hit = await cache.get(url);
+      if (hit) return new Response(hit.data, { headers: { 'content-type': hit.type } });
+      if (res) return res;
+      throw err;
+    };
+
+    // ES modules through that fetch: imported from blob: URLs, so import.meta.url and ./relative
+    // imports are pointed back at the module's real URL.
+    const blobs = new Map();
+    const blobOf = url => {
+      if (!blobs.has(url)) blobs.set(url, (async () => {
+        let src = await (await globalThis.fetch(url)).text();
+        for (const m of [...src.matchAll(/(\bfrom\s*|\bimport\s*\(\s*)(['"])(\.\.?\/[^'"]+)\2/g)])
+          src = src.replace(m[0], m[1] + JSON.stringify(await blobOf(new URL(m[3], url).href)));
+        src = src.replaceAll('import.meta.url', JSON.stringify(url));
+        return URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+      })());
+      return blobs.get(url);
+    };
+    globalThis.importCached = async url => import(await blobOf(url));
+  }
+  loader();
+  globalThis.loaderSource = `(${loader})();`;
+
   const base = 'https://leohearts.github.io/aqara-ir-esphome/';
-  import(base + 'app.js').then(m => m.start(base, location.origin))
+  importCached(base + 'app.js').then(m => m.start(base, location.origin))
     .catch(e => document.body.textContent = 'Could not load ' + base + 'app.js: ' + e);
 </script>
