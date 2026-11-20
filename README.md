@@ -1,195 +1,164 @@
+> Warning: Step 4 flashes a modified rootfs. That can brick your P3. Only flash an image whose md5 matches, and keep telnet working.
+
 # aqara-ir-esphome
 
-Use any [ESPHome `climate_ir`](https://esphome.io/components/climate/climate_ir.html) encoder on the
-**Aqara Air Conditioning Companion P3 (KTBL12LM)**, while keeping the stock app, HomeKit and
-Mi Home control.
+**Drive any AC from the Aqara P3 with an [ESPHome `climate_ir`](https://esphome.io/components/climate/climate_ir.html) encoder. Offline. HomeKit and Mi Home keep working.**
 
-The P3 only knows the IR code sets in its own library and Aqara's cloud. If your air conditioner's
-remote is not there (this project started with a Gree **YAP0F** remote, supported by
-[ryanh7/esphome-custom-components](https://github.com/ryanh7/esphome-custom-components)), the
-companion cannot drive it. ESPHome already has encoders for dozens of brands, so this project lets
-the P3 hand the AC state to an ESPHome build that runs on the P3 itself.
+## Why
 
-Everything the stock firmware does (HomeKit, Mi Home, automations, power metering, the IR queue
-and the IR module) stays as it is. Only the step "AC state -> IR timings" is replaced, and only
-when you select it.
+The Aqara Air Conditioning Companion P3 (KTBL12LM) is a nice IR blaster with power metering and HomeKit.
+It is also a cloud product pretending to be a local one.
+
+The P3 can only build IR codes on the device for 7 brands (Gree, Midea, Haier, Aux, Chigo, Panasonic,
+Mitsubishi, see `protocol_ac_judge` in `libha_ir.so`), and only for a handful of remotes. Every other
+remote lives in Aqara's cloud: when you pick a remote, the P3 asks the cloud (resource `200.2.14`) for a
+download URL and fetches the code file from there.
+
+My P3 runs in LAN mode with telnet and no internet, because IoT devices don't get to go online here.
+Result: no new remote can ever be paired. Even the built-in Gree encoder doesn't speak my Gree **YAP0F**
+remote.
+
+Meanwhile ESPHome already has open encoders for dozens of AC brands (YAP0F included, via
+[ryanh7/esphome-custom-components](https://github.com/ryanh7/esphome-custom-components)). So this project
+runs ESPHome *on the P3* and lets it do the one job the cloud was needed for.
+
+## What it does
+
+Everything stock stays: HomeKit, Mi Home, automations, power metering, the IR queue and module.
+Only "AC state -> IR timings" is replaced, and only when the remote id is the magic **1189998819**
+(0118 999 881 9, cut to fit an int32). Any other id = stock behaviour.
+
+- **`irgen`**: a normal ESPHome project built for the `host` platform, cross-compiled to static MIPS32r2.
+  One `climate_ir` entity (your AC), plus `aqara_ir` (turns `$AQARA_AC` into a `ClimateCall`) and a
+  `remote_transmitter` that prints timings to stdout instead of toggling a GPIO.
+- **`libirplug.so`**: loaded by `mha_ir -r` in place of `/lib/libha_ir.so` (and linked against it).
+  Its `ha_ir_open` redirects libha_ir's GOT slot for `protocol_ac_product_ircode` to itself, then calls
+  the stock one. (uClibc 0.9.33 ignores `LD_PRELOAD` and MIPS binds local symbols, so plain interposition
+  doesn't work.)
+- **Firmware patch** (`src/firmware/rootfs.patch`): makes `rcS` run `/data/scripts/post_init.sh` and
+  makes `fw_manager.sh` / `app_monitor.sh` start `mha_ir` with the plugin. Optional; without it the
+  plugin lasts until `mha_ir` restarts or the P3 reboots.
+
+`AQARA_AC=P,M,T,S,D`: P power (1 = off), M mode (0 cool, 1 heat, 2 auto, 3 fan, 4 dry),
+T target °C, S fan (0 auto, 1 low, 2 med, 3 high), D swing (0 = on).
 
 ## Requirements
 
-- Aqara AC Companion P3, firmware **4.5.20_0033.0652**, in Mi Home mode.
-- Telnet access as `admin` (empty password), e.g. via the community firmware from
-  [niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw) or the debug mode.
-- A Linux x86_64 PC with Python 3.13, `fakeroot`, `squashfs-tools` and `ncat` for building.
+- P3 on firmware **4.5.20_0033.0652**, Mi Home mode, telnet as `admin` (empty password), e.g. via
+  [niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw).
+- Linux x86_64 with Python 3.13, `fakeroot`, `squashfs-tools`, `ncat`.
+- `irplug.c` offsets match `/lib/libha_ir.so` md5 `2b73769db0b7569344ea5ca58fd925cc`. Other firmware: see [Porting](#porting).
 
-`irplug.c` contains offsets for one specific `/lib/libha_ir.so` (md5 `2b73769db0b7569344ea5ca58fd925cc`).
-On other firmware versions they must be recomputed, see [Porting](#porting-to-another-firmware).
+## How to use
 
-## How it works
+### 1. Pick your AC and build
 
-```mermaid
-sequenceDiagram
-    participant App as HomeKit / Mi Home
-    participant IR as mha_ir + libha_ir.so (stock)
-    participant PL as libirplug.so
-    participant EG as irgen (ESPHome)
-    participant HW as /dev/ttyS2 -> IR module
-    App->>IR: set power / mode / temperature ...
-    IR->>PL: protocol_ac_product_ircode (via GOT)
-    alt r_id == 1189998819
-        PL->>EG: AQARA_AC=P,M,T,S,D irgen
-        EG-->>PL: mark/space timings on stdout
-    else any other r_id
-        PL->>IR: stock encoder
-    end
-    IR->>HW: send queue, UART
+Edit `climate:` in `src/irgen/irgen.yaml` (keep `id: ac` and `transmitter_id: ir_out`):
+
+```yaml
+climate:
+  - platform: coolix          # any climate_ir platform, or an external one like gree_ext
+    id: ac
+    name: AC
+    transmitter_id: ir_out
 ```
-
-- **`irgen`** is a normal ESPHome project built for ESPHome's `host` platform and cross-compiled to a
-  static MIPS32r2 binary. Its YAML holds one `climate_ir` entity (your AC model), plus two small
-  components from this repo: `aqara_ir` turns `$AQARA_AC` into a `ClimateCall`, and a replacement
-  `remote_transmitter` prints the generated timings instead of driving a GPIO.
-- **`libirplug.so`** is loaded by `mha_ir -r` instead of `/lib/libha_ir.so` and depends on it, so the
-  stock code is all there. Its `ha_ir_open` points libha_ir's GOT slot for
-  `protocol_ac_product_ircode` at its own function, then calls the stock `ha_ir_open`.
-  (The P3's uClibc 0.9.33 ignores `LD_PRELOAD`, and its MIPS loader binds a library's own symbols
-  to itself, so plain symbol interposition does not work.)
-- The ESPHome encoder is used when the stored remote id `persist.app.ir.r_id` is **1189998819**
-  (0118 999 881 9, the IT Crowd emergency number, cut to fit a 32-bit int). Any other id keeps the
-  stock behaviour, so switching back is one `setprop`.
-- **Firmware patch** (`src/firmware/rootfs.patch`): `rcS` runs `/data/scripts/post_init.sh` again, and
-  `fw_manager.sh` / `app_monitor.sh` start `mha_ir` with `libirplug.so` when it exists. Without the
-  patch everything works too, but only until `mha_ir` restarts or the P3 reboots.
-
-`AQARA_AC` fields: P power (1 = off), M mode (0 cool, 1 heat, 2 auto, 3 fan, 4 dry),
-T target temperature in C, S fan (0 auto, 1 low, 2 medium, 3 high), D swing (0 = on).
-
-## Install
-
-All device commands run in a telnet session on the P3.
-
-### 1. Build
 
 ```sh
 git clone https://github.com/leohearts/aqara-ir-esphome && cd aqara-ir-esphome
 python3.13 -m venv venv && venv/bin/pip install esphome ziglang
 export PATH=$PWD/venv/bin:$PATH
-# pick your AC: edit src/irgen/irgen.yaml (see "Choose the AC model")
-./src/irgen/build.sh                      # -> src/irgen/.esphome/build/irgen/mips/irgen
-# copy /lib/libha_ir.so from the P3 to src/irplug/ first
-./src/irplug/build.sh                     # -> src/irplug/libirplug.so
+./src/irgen/build.sh          # -> src/irgen/.esphome/build/irgen/mips/irgen
+# copy /lib/libha_ir.so from the P3 into src/irplug/ first
+./src/irplug/build.sh         # -> src/irplug/libirplug.so
 ```
 
 ### 2. Copy to the P3
 
 ```sh
-# on the P3
+# P3
 mkdir -p /data/esphome-ir && nc -l -p 9092 > /data/esphome-ir/irgen
-# on the PC
+# PC
 ncat --send-only <p3-ip> 9092 < src/irgen/.esphome/build/irgen/mips/irgen
-# repeat for libirplug.so, then on the P3:
+# same for libirplug.so, then on the P3:
 chmod +x /data/esphome-ir/irgen
 ESPHOME_PREFDIR=/tmp AQARA_AC=0,1,26,0,0 /data/esphome-ir/irgen   # prints timings
 ```
 
-`src/irgen/build.sh upload` does the irgen copy for you (set `DEVICE=<p3-ip>`).
+(`DEVICE=<p3-ip> src/irgen/build.sh upload` does the irgen part.) Changing the AC model later = rebuild
+and copy `irgen`; `mha_ir` runs it per command, no restart needed.
 
-### 3. Select the ESPHome encoder
+### 3. Switch to the ESPHome encoder
 
 ```sh
-getprop persist.app.ir.r_id                          # note the old value to switch back later
-setprop persist.app.ir.r_id 3131383939393838313900   # "1189998819": hex string + 00
+getprop persist.app.ir.r_id                          # remember this to switch back
+setprop persist.app.ir.r_id 3131383939393838313900   # "1189998819" as hex + 00
 killall mha_ir; mha_ir -r /data/esphome-ir/libirplug.so >/dev/null 2>&1 &
 ```
 
-Now control the AC from the app. To check that a frame went out, compare
-`grep '^2:' /proc/tty/driver/serial` (the IR module's UART, `tx:` counter) before and after.
+Use the app as usual. The `tx:` counter in `grep '^2:' /proc/tty/driver/serial` goes up when a frame is sent.
 
-### 4. Make it survive reboots (firmware patch)
+Switch back: `setprop persist.app.ir.r_id <old value>` (or `rm /data/esphome-ir/libirplug.so`), then `killall mha_ir`.
 
-Base image: niceboygithub `modified/P3/4.5.20_0033.0652/rootfs_4.5.20_0033.0652_modified.bin`
+### 4. (Optional) Survive reboots
+
+<details><summary>Build and flash the patched rootfs</summary>
+
+Base: niceboygithub `modified/P3/4.5.20_0033.0652/rootfs_4.5.20_0033.0652_modified.bin`
 (md5 `a209d9b3d253b75afa87d01437230911`).
 
 ```sh
 tail -c +17 rootfs_4.5.20_0033.0652_modified.bin > mod.sqfs
-fakeroot -s fr.state unsquashfs -d root mod.sqfs            # fakeroot keeps the /dev nodes
+fakeroot -s fr.state unsquashfs -d root mod.sqfs            # fakeroot keeps /dev nodes
 (cd root && patch -p1 < ../src/firmware/rootfs.patch)
 fakeroot -i fr.state mksquashfs root new.sqfs -comp xz -b 131072 -noappend
-python3 src/firmware/mkimg.py new.sqfs rootfs_ir.bin        # Realtek r6cr header + checksum
+python3 src/firmware/mkimg.py new.sqfs rootfs_ir.bin        # r6cr header + checksum
 ```
 
-The result should have md5 `1bae852b5cd57b2388507fafefa60ab0`. The image format only has a 16-bit
-checksum, no signature, and the bootloader reports `root_sum_check: off`.
+Expect md5 `1bae852b5cd57b2388507fafefa60ab0`. (Only a 16-bit checksum, no signature; `root_sum_check: off`.)
 
-Make sure `/data/scripts/post_init.sh` exists, is executable and starts the stock services, because
-with the patch `rcS` runs it **instead of** `fw_manager.sh -r`:
+With the patch `rcS` runs `post_init.sh` **instead of** `fw_manager.sh -r`, so create it first:
 
 ```sh
 printf '#!/bin/sh\n\nfw_manager.sh -r\nfw_manager.sh -t -k\n' > /data/scripts/post_init.sh
 chmod +x /data/scripts/post_init.sh
 ```
 
-Then flash from the P3 (copy the image to `/tmp`, which is RAM; `/data` is too small):
+Copy the image to `/tmp` (RAM; `/data` is too small) and flash:
 
 ```sh
 fw_update /tmp/rootfs_ir.bin    # ends with "crc ok" / "Success"
-boot_ctrl show                  # the inactive rootfs slot now has the new size and is selected
+boot_ctrl show                  # inactive slot now has the new size and is selected
 reboot
 ```
 
-The P3 has two kernel/rootfs slots; `fw_update` writes the inactive one, the previous system stays in
-the other slot. An official OTA update replaces the patch.
+`fw_update` writes the inactive slot; the old system stays in the other one. An official OTA wipes the patch.
 
-**Flashing can brick the device.** Only flash an image whose md5 matches, and keep telnet working.
+</details>
 
-## Choose the AC model
+## Porting
 
-Edit the `climate:` entry in `src/irgen/irgen.yaml`. Keep `id: ac` and `transmitter_id: ir_out`:
-
-```yaml
-climate:
-  - platform: coolix          # any ESPHome climate_ir platform, or an external one like gree_ext
-    id: ac
-    name: AC
-    transmitter_id: ir_out
-```
-
-Rebuild and copy `irgen`. No restart is needed: `mha_ir` starts `irgen` for every IR command.
-
-## Switch back
-
-```sh
-setprop persist.app.ir.r_id <old value>    # stock encoder
-rm /data/esphome-ir/libirplug.so            # or drop the plugin entirely
-killall mha_ir                              # app_monitor.sh restarts it
-```
-
-## Porting to another firmware
-
-`irplug.c` needs three numbers from that firmware's `/lib/libha_ir.so`:
+<details><summary>Offsets for another firmware's <code>libha_ir.so</code></summary>
 
 - `OFF_SYNC`, `OFF_OPEN`: `st_value` of `protocol_ac_sync` and `ha_ir_open` in `.dynsym`.
-- `OFF_GOT_PRODUCT`: `DT_PLTGOT + 4 * (DT_MIPS_LOCAL_GOTNO + symidx - DT_MIPS_GOTSYM)`, where `symidx`
-  is the `.dynsym` index of `protocol_ac_product_ircode` (it must be `>= DT_MIPS_GOTSYM`).
+- `OFF_GOT_PRODUCT`: `DT_PLTGOT + 4 * (DT_MIPS_LOCAL_GOTNO + symidx - DT_MIPS_GOTSYM)`, `symidx` = `.dynsym`
+  index of `protocol_ac_product_ircode` (must be `>= DT_MIPS_GOTSYM`).
+- Check `protocol_ac_product_ircode` still takes the AC state as 4th arg with the same layout
+  (power +0, mode +4, temperature +9, fan +12, swing +16).
 
-Also check that `protocol_ac_product_ircode` still takes the AC state as its 4th argument with the
-same layout (power +0, mode +4, temperature +9, fan +12, swing +16).
+</details>
 
 ## Notes
 
-- Do not overwrite `libirplug.so` while `mha_ir` has it loaded (SIGBUS). Stop `mha_ir` first.
-- Inside `mha_ir`, `pclose()` does not return 0 even when `irgen` succeeds (likely because SIGCHLD
-  is ignored; not verified), so the plugin judges by the parsed output.
-- `persist.app.ir.*` properties are hex-encoded strings with a trailing `00`.
-- Local IPC is `/tmp/miio_agent.socket` (SOCK_SEQPACKET): bind with `{"method":"bind","address":N}`;
-  `mha_ir` is address 512 and accepts e.g.
+- Don't overwrite `libirplug.so` while `mha_ir` has it loaded (SIGBUS). Stop `mha_ir` first.
+- Inside `mha_ir`, `pclose()` doesn't return 0 even on success (probably ignored SIGCHLD, not verified),
+  so the plugin trusts the parsed output instead.
+- `persist.app.ir.*` values are hex strings with a trailing `00`.
+- Local IPC: `/tmp/miio_agent.socket` (SOCK_SEQPACKET), bind with `{"method":"bind","address":N}`; `mha_ir` is 512, e.g.
   `{"id":1,"_to":512,"method":"local.ir_write","params":[{"did":"<did>","prop":"on_off_status","value":"1"}]}`.
 
 ## Credits
 
-- [ESPHome](https://esphome.io) and its `climate_ir` platforms.
-- [ryanh7/esphome-custom-components](https://github.com/ryanh7/esphome-custom-components) for `gree_ext` (YAP0F).
-- [niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw) for the P3 firmware images and tools.
-
-## License
+[ESPHome](https://esphome.io), [ryanh7/esphome-custom-components](https://github.com/ryanh7/esphome-custom-components) (`gree_ext`),
+[niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw) (firmware images and tools).
 
 MIT, see [LICENSE](LICENSE). Not affiliated with Aqara, Lumi or Xiaomi.
