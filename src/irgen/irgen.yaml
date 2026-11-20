@@ -4,9 +4,7 @@ esphome:
 host:
 
 external_components:
-  - source:
-      type: local
-      path: components
+  - source: github://leohearts/aqara-ir-esphome   # components/ in this repository
     components: [remote_transmitter, remote_receiver, aqara_ir]
   - source: github://ryanh7/esphome-custom-components
     components: [gree_ext]

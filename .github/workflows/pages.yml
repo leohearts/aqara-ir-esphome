@@ -24,7 +24,6 @@ jobs:
           gh release download toolchain-clang22-mips --repo ${{ github.repository }} --dir assets
           mkdir -p docs/clang && tar xzf assets/clang-mips-wasm.tar.gz -C docs/clang
           cp assets/sysroot.tar.gz docs/
-          cp -r src/irgen/components docs/components
           echo ${{ github.sha }} > docs/version.txt   # the web UI re-downloads files only when this changes
       - uses: actions/upload-pages-artifact@v3
         with:

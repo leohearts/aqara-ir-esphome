@@ -33,7 +33,8 @@ the real AC state.
 - **`irgen`**: a normal ESPHome project built for the `host` platform, cross-compiled to static MIPS32r2.
   One `climate_ir` entity (your AC), plus `aqara_ir` (turns `$AQARA_AC` into a `ClimateCall`, or decodes
   `$AQARA_RX`), a `remote_transmitter` that prints timings to stdout instead of toggling a GPIO and a
-  `remote_receiver` that feeds received timings to the climate's decoder.
+  `remote_receiver` that feeds received timings to the climate's decoder. These three live in
+  `components/`, so any config loads them with `source: github://leohearts/aqara-ir-esphome`.
 - **`libirplug.so`**: loaded by `mha_ir -r` in place of `/lib/libha_ir.so` (and linked against it).
   Its `ha_ir_open` redirects libha_ir's GOT slots for `protocol_ac_product_ircode` (send) and
   `protocol_ac_sync` (receive) to itself, then calls the stock one. (uClibc 0.9.33 ignores `LD_PRELOAD`

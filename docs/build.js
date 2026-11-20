@@ -12,13 +12,6 @@
 const ESPHOME_VERSION = '2026.11.0';
 const PY_DEPS = ['voluptuous', 'click', 'colorama', 'platformdirs', 'tzlocal', 'tzdata', 'ruamel.yaml',
   'filelock', 'puremagic', 'argcomplete', 'paho-mqtt', 'requests', 'pyserial'];
-// From src/irgen/components (copied into the Pages site by .github/workflows/pages.yml).
-const BUNDLED_COMPONENTS = {
-  aqara_ir: ['__init__.py', 'aqara_ir.h'],
-  remote_transmitter: ['__init__.py', 'remote_transmitter.h'],
-  remote_receiver: ['__init__.py', 'remote_receiver.h'],
-};
-
 const dec = new TextDecoder();
 const enc = new TextEncoder();
 
@@ -89,14 +82,11 @@ function* walk(tree, prefix = '') {
 
 const getPath = (tree, path) => path.split('/').reduce((t, p) => t?.[p], tree);
 
-export async function codegen(yaml, { pyodide, asset, log }) {
+export async function codegen(yaml, { pyodide, log }) {
   const { FS } = pyodide;
   log('Installing ESPHome into Pyodide');
   await pyodide.loadPackage(['micropip', 'pyyaml', 'jinja2', 'cryptography', 'pyparsing']);
-  for (const [dir, files] of Object.entries(BUNDLED_COMPONENTS)) {
-    FS.mkdirTree(`/work/components/${dir}`);
-    for (const f of files) FS.writeFile(`/work/components/${dir}/${f}`, await asset(`components/${dir}/${f}`));
-  }
+  FS.mkdirTree('/work');
   FS.writeFile('/work/config.yaml', yaml);
   log('Generating C++ with ESPHome');
   await pyodide.runPythonAsync(`
