@@ -83,7 +83,7 @@ If you skipped Step 1, the plugin and the web UI stop when the P3 reboots. Start
    external_components:
      - source: github://leohearts/aqara-ir-esphome      # required for this to work
        components: [remote_transmitter, remote_receiver, aqara_ir]
-     - source: github://ryanh7/esphome-custom-components
+     - source: github://ryanh7/esphome-custom-components      # your own components, if needed
        components: [gree_ext]
 
    remote_transmitter:
