@@ -72,11 +72,11 @@ export async function start(base, device) {
   await refresh();
   await showCacheSize();
 
-  $('use-esphome').onclick = async () => { log(await api('/api/use-esphome', { method: 'POST' })); setTimeout(refresh, 3000); };
+  $('use-esphome').onclick = async () => { log(await api('/api/use-esphome', { method: 'PUT' })); setTimeout(refresh, 3000); };
   $('use-stock').onclick = async () => {
     const id = $('stock-id').value.trim();
     if (!/^\d+$/.test(id)) return log('Enter the numeric remote id to go back to.');
-    log(await api('/api/use-stock', { method: 'POST', body: hex(id) })); setTimeout(refresh, 3000);
+    log(await api('/api/use-stock', { method: 'PUT', body: hex(id) })); setTimeout(refresh, 3000);
   };
   $('save').onclick = async () => log(await api('/api/config', { method: 'PUT', body: $('yaml').value }));
   $('clear-cache').onclick = async () => { await buildCache.clear(); await showCacheSize(); };

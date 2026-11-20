@@ -6,13 +6,21 @@ cd "$(dirname "$0")"
 D=/data/esphome-ir
 MAGIC_HEX=3131383939393838313900   # "1189998819" as hex + 00
 LIBHA=${LIBHA:-/lib/libha_ir.so}
-LIBHA_MD5=2b73769db0b7569344ea5ca58fd925cc   # the offsets in irplug.c are for this build only
+# libha_ir.so builds whose state struct layout was checked with a real AC (md5 firmware).
+# The plugin finds its functions itself; for other builds only that layout is unverified.
+KNOWN_LIBHA="2b73769db0b7569344ea5ca58fd925cc 4.5.20_0033.0652"
 
 # Checks first: nothing is changed unless all pass.
 fail() { echo "install.sh: $*; nothing was changed" >&2; exit 1; }
 [ "$(getprop ro.sys.model)" = lumi.aircondition.acn05 ] || fail "not an Aqara P3 (ro.sys.model)"
-[ "$(md5sum $LIBHA 2>/dev/null | cut -d' ' -f1)" = $LIBHA_MD5 ] ||
-  fail "$LIBHA is not the 4.5.20_0033.0652 build the plugin is made for (see Contributing: porting)"
+md5=$(md5sum $LIBHA 2>/dev/null | cut -d' ' -f1)
+[ -n "$md5" ] || fail "$LIBHA not found"
+case "$KNOWN_LIBHA" in
+  *"$md5"*) ;;
+  *) echo "note: $LIBHA (md5 $md5) is a build nobody has tested yet. After installing, try power,"
+     echo "      mode, temperature and fan from the app; if the AC does what you asked, please open an"
+     echo "      issue with this md5 and your firmware version so it can be added to the list." ;;
+esac
 need=$(du -sk . | cut -f1); free=$(df -k /data | tail -n 1 | awk '{print $4}')
 [ "$free" -gt $((need * 2)) ] || fail "/data has ${free} KB free, needs $((need * 2)) KB"
 

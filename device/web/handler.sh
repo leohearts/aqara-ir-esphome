@@ -4,8 +4,10 @@
 D=/data/esphome-ir
 MAGIC_HEX=3131383939393838313900   # "1189998819": persist.app.ir.* values are hex strings + 00
 
+# No CORS headers: only the page this server serves may read /api/*. Every request that changes
+# something is a PUT, which other sites cannot send without a CORS preflight this server never answers.
 reply() { # status content-type body-file
-  printf 'HTTP/1.0 %s\r\nContent-Type: %s\r\nContent-Length: %s\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n' \
+  printf 'HTTP/1.0 %s\r\nContent-Type: %s\r\nContent-Length: %s\r\nConnection: close\r\n\r\n' \
     "$1" "$2" "$(wc -c < "$3")"
   cat "$3"
 }
@@ -49,13 +51,11 @@ case "$method $target" in
   else
     text "400 Bad Request" "rejected: test run printed $n timings"
   fi ;;
-"POST /api/use-esphome")
+"PUT /api/use-esphome")
   setprop persist.app.ir.r_id $MAGIC_HEX; killall mha_ir; text "200 OK" "r_id set to 1189998819, mha_ir restarting" ;;
-"POST /api/use-stock")
+"PUT /api/use-stock")
   body $IN; setprop persist.app.ir.r_id "$(cat $IN)"; killall mha_ir
   text "200 OK" "r_id set to $(cat $IN), mha_ir restarting" ;;
-"OPTIONS "*)
-  printf 'HTTP/1.0 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, PUT, POST\r\nConnection: close\r\n\r\n' ;;
 *)
   text "404 Not Found" "no route: $method $target" ;;
 esac

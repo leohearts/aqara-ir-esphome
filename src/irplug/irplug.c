@@ -4,16 +4,16 @@
  * protocol_ac_sync (decode, IR in from the physical remote) at our versions, then chains to the
  * stock ha_ir_open. (uClibc 0.9.33's MIPS ld.so binds a library's own symbols to itself, so plain
  * symbol interposition does not work; the GOT is in the RW segment, no text patch.)
+ * The addresses are looked up at run time in libha_ir's dynamic symbol table, so other builds work
+ * as long as they export these functions; if a lookup fails, nothing is patched (stock behaviour).
+ * What cannot be checked here is the layout of the state structs below (known good: libha_ir.so
+ * md5 2b73769db0b7569344ea5ca58fd925cc, firmware 4.5.20_0033.0652).
+ * The result is written to /tmp/irplug.status.
  * r_id == IRPLUG_MAGIC hands the work to the ESPHome-built irgen, which owns the model choice
  * (its YAML config); every other r_id goes to the original code.
  * Built freestanding against uClibc 0.9.33 symbols, so prototypes are declared here. */
 #define IRPLUG_MAGIC 1189998819 /* 0118 999 881 9(99 119 725 3), cut to fit libha_ir's int r_id */
 #define IRGEN "ESPHOME_PREFDIR=/tmp /data/esphome-ir/irgen"
-/* /lib/libha_ir.so md5 2b73769db0b7569344ea5ca58fd925cc */
-#define OFF_SYNC 0x20a18        /* protocol_ac_sync: exported, used to find the load base */
-#define OFF_OPEN 0x662c         /* ha_ir_open */
-#define OFF_GOT_PRODUCT 0x3c9a8 /* global GOT slot of protocol_ac_product_ircode */
-#define OFF_GOT_SYNC 0x3c9ac    /* global GOT slot of protocol_ac_sync */
 #define MAX_TIMINGS 998 /* mha_ir's ircode_num_valid wants even and < 1000; our own buffer below */
 
 typedef struct FILE FILE;
@@ -21,10 +21,14 @@ FILE *popen(const char *cmd, const char *mode);
 int pclose(FILE *f);
 int fgetc(FILE *f);
 int snprintf(char *buf, unsigned long n, const char *fmt, ...);
-void protocol_ac_sync(void);
+int open(const char *path, int flags, ...);
+long write(int fd, const void *buf, unsigned long n);
+int close(int fd);
+void protocol_ac_sync(void); /* any libha_ir export: an address inside its first segment */
 
 typedef int (*product_fn)(unsigned, unsigned, int, const unsigned char *, unsigned char *);
 typedef int (*sync_fn)(unsigned, unsigned, unsigned, const unsigned short *, unsigned char *);
+typedef int (*open_fn)(void *, int);
 static product_fn orig_product;
 static sync_fn orig_sync;
 static unsigned short timings[MAX_TIMINGS];
@@ -87,17 +91,90 @@ static int rx_sync(unsigned brand, unsigned rid, unsigned n, const unsigned shor
   return 1;
 }
 
+/* libha_ir's dynamic section, read from its mapped image. */
+static struct {
+  char *base;
+  const char *strtab;
+  const unsigned *symtab; /* Elf32_Sym: name, value, size, info/other/shndx */
+  unsigned *got;
+  unsigned symtabno, local_gotno, gotsym;
+} lib;
+
+static int streq(const char *a, const char *b) {
+  while (*a && *a == *b) a++, b++;
+  return *a == *b;
+}
+
+static int load_lib(void) {
+  /* The first PT_LOAD maps the file from offset 0 and contains the export: walk back to the ELF header. */
+  char *p = (char *)((unsigned)protocol_ac_sync & ~0xfffu);
+  for (int i = 0; i < 4096 && !(p[0] == 0x7f && p[1] == 'E' && p[2] == 'L' && p[3] == 'F'); i++) p -= 0x1000;
+  if (p[0] != 0x7f || p[1] != 'E') return 0;
+  lib.base = p;
+  const unsigned *ph = (const unsigned *)(p + *(unsigned *)(p + 0x1c));
+  const unsigned *dyn = 0;
+  for (unsigned i = 0, n = *(unsigned short *)(p + 0x2c); i < n; i++, ph += 8)
+    if (ph[0] == 2 /* PT_DYNAMIC */) dyn = (const unsigned *)(p + ph[2]);
+  if (!dyn) return 0;
+  /* d_ptr values may or may not be relocated by ld.so */
+#define PTR(v) ((v) < (unsigned)p ? p + (v) : (char *)(v))
+  for (; dyn[0]; dyn += 2) switch (dyn[0]) {
+      case 3: lib.got = (unsigned *)PTR(dyn[1]); break;                   /* DT_PLTGOT */
+      case 5: lib.strtab = PTR(dyn[1]); break;                             /* DT_STRTAB */
+      case 6: lib.symtab = (const unsigned *)PTR(dyn[1]); break;           /* DT_SYMTAB */
+      case 0x7000000a: lib.local_gotno = dyn[1]; break;                    /* DT_MIPS_LOCAL_GOTNO */
+      case 0x70000011: lib.symtabno = dyn[1]; break;                       /* DT_MIPS_SYMTABNO */
+      case 0x70000013: lib.gotsym = dyn[1]; break;                         /* DT_MIPS_GOTSYM */
+    }
+  return lib.got && lib.strtab && lib.symtab && lib.symtabno;
+}
+
+/* Address of a defined export, and its global GOT slot (null when it has none). */
+static char *lookup(const char *name, unsigned **slot) {
+  for (unsigned i = 1; i < lib.symtabno; i++) {
+    const unsigned *s = lib.symtab + 4 * i;
+    if (s[1] == 0 || !streq(lib.strtab + s[0], name)) continue;
+    char *addr = lib.base + s[1];
+    if (slot) *slot = i >= lib.gotsym ? lib.got + lib.local_gotno + (i - lib.gotsym) : 0;
+    return addr;
+  }
+  return 0;
+}
+
+static void status(const char *text) {
+  int fd = open("/tmp/irplug.status", 1 | 0x100 | 0x200, 0644); /* MIPS O_WRONLY|O_CREAT|O_TRUNC */
+  if (fd < 0) return;
+  unsigned n = 0;
+  while (text[n]) n++;
+  write(fd, text, n);
+  close(fd);
+}
+
 int ha_ir_open(void *a1, int a2) {
-  char *base = (char *)protocol_ac_sync - OFF_SYNC;
-  product_fn *ps = (product_fn *)(base + OFF_GOT_PRODUCT);
-  sync_fn *ss = (sync_fn *)(base + OFF_GOT_SYNC);
-  if (*ps != product) {
-    orig_product = *ps;
-    *ps = product;
+  static open_fn stock_open;
+  unsigned *ps = 0, *ss = 0;
+  char *pa = 0, *sa = 0;
+  if (!stock_open) {
+    if (!load_lib() || !(stock_open = (open_fn)lookup("ha_ir_open", 0))) {
+      status("libha_ir.so: dynamic section or ha_ir_open not found\n");
+      return -1;
+    }
+    pa = lookup("protocol_ac_product_ircode", &ps);
+    sa = lookup("protocol_ac_sync", &ss);
   }
-  if (*ss != rx_sync) {
-    orig_sync = *ss;
-    *ss = rx_sync;
+  char msg[200];
+  /* patch only slots that hold exactly the function they should: anything else means we misread */
+  if (ps && ss && *ps == (unsigned)pa && *ss == (unsigned)sa) {
+    orig_product = (product_fn)pa;
+    orig_sync = (sync_fn)sa;
+    *ps = (unsigned)product;
+    *ss = (unsigned)rx_sync;
+    snprintf(msg, sizeof msg, "patched: base %p, product %p (got +0x%x), sync %p (got +0x%x), open %p\n",
+             lib.base, pa, (unsigned)((char *)ps - lib.base), sa, (unsigned)((char *)ss - lib.base), stock_open);
+    status(msg);
+  } else if (pa || sa || ps) {
+    snprintf(msg, sizeof msg, "not patched, stock behaviour: product %p slot %p, sync %p slot %p\n", pa, ps, sa, ss);
+    status(msg);
   }
-  return ((int (*)(void *, int))(base + OFF_OPEN))(a1, a2);
+  return stock_open(a1, a2);
 }

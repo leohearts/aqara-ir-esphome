@@ -8,10 +8,11 @@ PLUG=${PLUG:-$D/libirplug.so}
 STOCK_LIB=/lib/libha_ir.so
 
 running() { ps | grep "$1" | grep -v grep >/dev/null; }
-# mha_ir keeps running even when -r names a library it cannot load: check that the plugin is mapped.
+# mha_ir keeps running even when -r names a library it cannot load, and the plugin leaves libha_ir
+# alone when it cannot find its functions: require the plugin mapped and its status "patched".
 plugin_up() {
   for pid in $(ps | grep "mha_ir -r $PLUG" | grep -v grep | awk '{print $1}'); do
-    grep -q "$PLUG" /proc/$pid/maps 2>/dev/null && return 0
+    grep -q "$PLUG" /proc/$pid/maps 2>/dev/null && grep -q '^patched' /tmp/irplug.status 2>/dev/null && return 0
   done
   return 1
 }

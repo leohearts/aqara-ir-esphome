@@ -3,7 +3,6 @@
 # Needs: python3 -m ziglang (pip install ziglang). The proprietary /lib/libha_ir.so is NOT needed:
 # libirplug.so only records DT_NEEDED libha_ir.so and imports protocol_ac_sync, so we link against
 # an empty stand-in with that soname and symbol.
-# The OFF_* offsets in irplug.c match the device's /lib/libha_ir.so md5 2b73769db0b7569344ea5ca58fd925cc.
 set -e
 cd "$(dirname "$0")"
 CC="python3 -m ziglang cc -target mipsel-linux-musleabi -mcpu=mips32r2 -msoft-float -fPIC -nostdlib -shared -Os"

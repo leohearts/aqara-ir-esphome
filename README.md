@@ -24,7 +24,7 @@ encoder, and presses on the physical remote are decoded by ESPHome so the app sh
 
 ## Requirements
 
-- Aqara P3 (KTBL12LM) on the community firmware **4.5.20_0033.0652** ([niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw)), in Mi Home mode, with telnet (`admin`, empty password). The offsets in `irplug.c` match `/lib/libha_ir.so` md5 `2b73769db0b7569344ea5ca58fd925cc`; for other firmware see [Contributing](#contributing).
+- Aqara P3 (KTBL12LM) in Mi Home mode with telnet (`admin`, empty password), e.g. the community firmware **4.5.20_0033.0652** ([niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw)), the one tested with a real AC. Other builds of `/lib/libha_ir.so` should work; `install.sh` says when yours is untested (see [Contributing](#contributing)).
 - A PC on the same network with `curl`, `telnet` and `ncat` (or `nc`).
 - A browser to build for your AC: a current Chromium-based browser or Firefox. No Python or compiler is needed.
 - Only for flashing the optional firmware image (Install, step 1): `fakeroot`, `squashfs-tools`, `python3`, `curl`, `patch`.
@@ -47,7 +47,7 @@ md5sum /tmp/rootfs_ir.bin    # compare with the PC
 fw_update /tmp/rootfs_ir.bin && reboot
 ```
 
-**Step 2: the encoder and the web UI.** The release tarball is 16 KB. Send it to the P3 and run `install.sh`; it is safe to run again.
+**Step 2: the encoder and the web UI.** The release tarball is about 18 KB. Send it to the P3 and run `install.sh`; it is safe to run again.
 
 ```sh
 # PC
@@ -143,8 +143,9 @@ Layout:
   instead of toggling a GPIO; `remote_receiver` feeds received timings to the climate's decoder.
 - `src/irgen/`: `irgen.yaml` (default config) and `build.sh`, a native build of the ESPHome `host` project to static MIPS32r2.
 - `src/irplug/`: `irplug.c`, `libirplug.so` source. Loaded by `mha_ir -r` in place of `/lib/libha_ir.so`; its `ha_ir_open`
-  redirects libha_ir's GOT slots for `protocol_ac_product_ircode` (send) and `protocol_ac_sync` (receive) to itself, then
-  calls the stock one. (uClibc 0.9.33 ignores `LD_PRELOAD` and MIPS binds local symbols, so plain interposition doesn't work.)
+  looks up libha_ir's GOT slots for `protocol_ac_product_ircode` (send) and `protocol_ac_sync` (receive), points them at
+  itself, then calls the stock one. (uClibc 0.9.33 ignores `LD_PRELOAD` and MIPS binds local symbols, so plain interposition
+  doesn't work.)
 - `device/`: `install.sh`, `start.sh`, `pack.sh` (release tarball); `device/web/`: `tcpsvd-lite.c` (busybox has no httpd/inetd),
   `httpd.sh`, `handler.sh` (API), `index.html`.
 - `docs/`: the web UI on GitHub Pages ([leohearts.github.io/aqara-ir-esphome](https://leohearts.github.io/aqara-ir-esphome/)).
@@ -165,13 +166,12 @@ node test/build-node.mjs <config.yaml> <out-binary> [clang bundle.js]   # the we
 
 Releases: push a `v*` tag; `release.yml` builds and attaches `aqara-ir-esphome-p3.tar.gz`.
 
-Porting to another `libha_ir.so`: set the offsets in `irplug.c`:
-
-- `OFF_SYNC`, `OFF_OPEN`: `st_value` of `protocol_ac_sync` and `ha_ir_open` in `.dynsym`.
-- `OFF_GOT_PRODUCT`: `DT_PLTGOT + 4 * (DT_MIPS_LOCAL_GOTNO + symidx - DT_MIPS_GOTSYM)`, `symidx` = `.dynsym`
-  index of `protocol_ac_product_ircode` (must be `>= DT_MIPS_GOTSYM`).
-- Check `protocol_ac_product_ircode` still takes the AC state as 4th arg with the same layout
-  (power +0, mode +4, temperature +9, fan +12, swing +16).
+Other `libha_ir.so` builds: the plugin finds `protocol_ac_product_ircode`, `protocol_ac_sync` and
+`ha_ir_open` and their GOT slots in the loaded library's dynamic section, and patches only if each slot
+holds the expected function; the result is in `/tmp/irplug.status`, and `start.sh` falls back to the
+stock encoder when it is not `patched`. What it cannot check is the layout of the state structs
+(send: power +0, mode +4, temperature +9, fan +12, swing +16; receive: see `rx_sync`). If a new build
+works with a real AC, add its md5 to `KNOWN_LIBHA` in `device/install.sh`.
 
 ## Notes
 
