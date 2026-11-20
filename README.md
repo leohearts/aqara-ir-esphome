@@ -135,6 +135,23 @@ reboot
 
 </details>
 
+### 5. (Optional) Web UI
+
+Edit `irgen.yaml`, rebuild and install `irgen` from a browser, switch encoders. The P3 only serves a
+tiny page and moves files; ESPHome codegen (Pyodide) and the MIPS compile (Clang/LLD in WebAssembly, see
+[toolchain/](toolchain/README.md)) run in your browser, loaded from GitHub Pages. The P3 stays offline.
+A build takes about 90 s; the first one downloads ~150 MB.
+
+```sh
+./device/web/build.sh                       # -> device/web/tcpsvd-lite (busybox has no httpd/inetd)
+# copy device/web/{handler.sh,httpd.sh,index.html,tcpsvd-lite} to /data/esphome-ir/web/
+# and src/irgen/irgen.yaml to /data/esphome-ir/irgen.yaml, then on the P3:
+chmod +x /data/esphome-ir/web/*.sh /data/esphome-ir/web/tcpsvd-lite
+/data/esphome-ir/web/httpd.sh 80 >/dev/null 2>&1 &   # also add this line to post_init.sh
+```
+
+Open `http://<p3-ip>/`. An uploaded `irgen` is only installed if a test run prints IR timings.
+
 ## Porting
 
 <details><summary>Offsets for another firmware's <code>libha_ir.so</code></summary>

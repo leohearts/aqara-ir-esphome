@@ -9,11 +9,15 @@ reply() { # status content-type body-file
     "$1" "$2" "$(wc -c < "$3")"
   cat "$3"
 }
-text() { printf '%s\n' "$2" > /tmp/web.out; reply "$1" text/plain /tmp/web.out; }
+OUT=/tmp/web.$$.out IN=/tmp/web.$$.in   # one handler process per connection (tcpsvd-lite)
+trap 'rm -f $OUT $IN' EXIT
+text() { printf '%s\n' "$2" > $OUT; reply "$1" text/plain $OUT; }
 
-read -r method target proto
+# Browsers open spare connections that never send a request; close them after 3 s.
+read -t 3 -r method target proto || exit 0
+target=${target%%\?*}   # routes ignore query strings (cache busters)
 len=0
-while read -r line; do
+while read -t 3 -r line; do
   line=$(printf '%s' "$line" | tr -d '\r')
   [ -z "$line" ] && break
   case "$line" in [Cc]ontent-[Ll]ength:*) len=${line#*:}; len=${len# } ;; esac
@@ -29,8 +33,8 @@ case "$method $target" in
     printf '"mha_ir":"%s",' "$(ps | grep 'mha_ir -r' | grep -v grep | sed 's/.*-r //')"
     printf '"irgen_md5":"%s",' "$(md5sum $D/irgen 2>/dev/null | cut -d' ' -f1)"
     printf '"ir_uart_tx":"%s"}\n' "$(grep '^2:' /proc/tty/driver/serial | sed 's/.*tx:\([0-9]*\).*/\1/')"
-  } > /tmp/web.out
-  reply "200 OK" application/json /tmp/web.out ;;
+  } > $OUT
+  reply "200 OK" application/json $OUT ;;
 "GET /api/config")
   reply "200 OK" "text/yaml; charset=utf-8" $D/irgen.yaml ;;
 "PUT /api/config")
@@ -48,8 +52,8 @@ case "$method $target" in
 "POST /api/use-esphome")
   setprop persist.app.ir.r_id $MAGIC_HEX; killall mha_ir; text "200 OK" "r_id set to 1189998819, mha_ir restarting" ;;
 "POST /api/use-stock")
-  body /tmp/web.in; setprop persist.app.ir.r_id "$(cat /tmp/web.in)"; killall mha_ir
-  text "200 OK" "r_id set to $(cat /tmp/web.in), mha_ir restarting" ;;
+  body $IN; setprop persist.app.ir.r_id "$(cat $IN)"; killall mha_ir
+  text "200 OK" "r_id set to $(cat $IN), mha_ir restarting" ;;
 "OPTIONS "*)
   printf 'HTTP/1.0 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, PUT, POST\r\nConnection: close\r\n\r\n' ;;
 *)

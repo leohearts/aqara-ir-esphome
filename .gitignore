@@ -8,3 +8,4 @@ src/irplug/libirplug.so
 docs/clang/
 docs/sysroot.tar.gz
 node_modules/
+device/web/tcpsvd-lite

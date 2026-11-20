@@ -1,10 +1,5 @@
 #!/bin/sh
-# Minimal HTTP server for the P3: busybox nc serves one connection per loop iteration,
-# handler.sh reads the request from nc and writes the response back through a fifo.
-PORT=${1:-80}
+# HTTP server for the P3 web UI: tcpsvd-lite runs handler.sh once per connection
+# (busybox here has no httpd/tcpsvd/inetd).
 W=/data/esphome-ir/web
-F=/tmp/esphome-ir-web.fifo
-rm -f $F && mkfifo $F
-while :; do
-  nc -l -p "$PORT" < $F | $W/handler.sh > $F
-done
+exec $W/tcpsvd-lite "${1:-80}" $W/handler.sh
