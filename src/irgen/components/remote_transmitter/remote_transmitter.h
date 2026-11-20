@@ -8,9 +8,12 @@ namespace esphome::remote_transmitter {
 
 // Prints the frame as alternating mark/space microseconds, one comma-separated line,
 // starting with a mark and ending with a space (what mha_ir's IR UART expects).
+// `repeat` prints the whole frame that many times back to back: the AC misses about
+// 30% of the frames the P3 sends, so one copy is not reliable.
 class RemoteTransmitterComponent : public remote_base::RemoteTransmitterBase, public Component {
  public:
   RemoteTransmitterComponent() : remote_base::RemoteTransmitterBase(nullptr) {}
+  void set_repeat(uint32_t repeat) { this->repeat_ = repeat; }
 
  protected:
   static constexpr int32_t TAIL_SPACE = 20000;
@@ -31,11 +34,14 @@ class RemoteTransmitterComponent : public remote_base::RemoteTransmitterBase, pu
     }
     if (!out.empty() && out.back() > 0)
       out.push_back(-TAIL_SPACE);
-    for (size_t i = 0; i < out.size(); i++)
-      printf(i ? ",%d" : "%d", out[i] < 0 ? -out[i] : out[i]);
+    for (uint32_t r = 0; r < this->repeat_; r++)
+      for (size_t i = 0; i < out.size(); i++)
+        printf(r || i ? ",%d" : "%d", out[i] < 0 ? -out[i] : out[i]);
     printf("\n");
     fflush(stdout);
   }
+
+  uint32_t repeat_{1};
 };
 
 }  // namespace esphome::remote_transmitter

@@ -69,6 +69,11 @@ climate:
     receiver_id: ir_in
 ```
 
+`remote_transmitter: repeat: 2` sends every command twice. Measured with a microphone next to the AC
+(Gree YAP0F), the AC missed about 30% of single frames (27 of 40 received), regardless of content; with
+two copies 11 of 14 commands got through. The AC beeps twice when it catches both. A command must fit in
+998 timings (`repeat` × frame length; a Gree frame is 280).
+
 ```sh
 git clone https://github.com/leohearts/aqara-ir-esphome && cd aqara-ir-esphome
 python3.13 -m venv venv && venv/bin/pip install esphome ziglang
@@ -178,6 +183,8 @@ Open `http://<p3-ip>/`. An uploaded `irgen` is only installed if a test run prin
 - `persist.app.ir.*` values are hex strings with a trailing `00`.
 - Local IPC: `/tmp/miio_agent.socket` (SOCK_SEQPACKET), bind with `{"method":"bind","address":N}`; `mha_ir` is 512, e.g.
   `{"id":1,"_to":512,"method":"local.ir_write","params":[{"did":"<did>","prop":"on_off_status","value":"1"}]}`.
+- One frame, or one 998-timing command, goes to the IR module as a single UART packet:
+  `FF FE 00 <cmd> <len hi> <len lo> <u16 timings> <crc16-x25>`. No carrier field; the module picks it.
 
 ## Credits
 

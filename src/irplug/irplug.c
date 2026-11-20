@@ -14,7 +14,7 @@
 #define OFF_OPEN 0x662c         /* ha_ir_open */
 #define OFF_GOT_PRODUCT 0x3c9a8 /* global GOT slot of protocol_ac_product_ircode */
 #define OFF_GOT_SYNC 0x3c9ac    /* global GOT slot of protocol_ac_sync */
-#define MAX_TIMINGS 510 /* libha_ir buffer is 512 u16; ircode_num_valid wants even and < 1000 */
+#define MAX_TIMINGS 998 /* mha_ir's ircode_num_valid wants even and < 1000; our own buffer below */
 
 typedef struct FILE FILE;
 FILE *popen(const char *cmd, const char *mode);
@@ -27,7 +27,7 @@ typedef int (*product_fn)(unsigned, unsigned, int, const unsigned char *, unsign
 typedef int (*sync_fn)(unsigned, unsigned, unsigned, const unsigned short *, unsigned char *);
 static product_fn orig_product;
 static sync_fn orig_sync;
-static unsigned short timings[512];
+static unsigned short timings[MAX_TIMINGS];
 
 /* Runs cmd, stores the decimal numbers it prints in out[] (at most max); returns how many it printed.
  * pclose() never returns 0 inside mha_ir (likely SIGCHLD ignored), so callers judge by the output. */
