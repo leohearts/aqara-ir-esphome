@@ -28,34 +28,50 @@
     // Downloads (keyed by URL) and compiled objects (keyed by build.js); the browser may evict both.
     const cache = globalThis.buildCache = {
       get: key => tx('readonly', d => d.get(key)),
-      tag: key => tx('readonly', (d, m) => m.get(key)).then(m => m?.tag),
-      put: (key, value, tag = null) => tx('readwrite', (d, m) => {
-        m.put({ size: value.data.byteLength, tag }, key);
+      meta: key => tx('readonly', (d, m) => m.get(key)),
+      put: (key, value, version = null) => tx('readwrite', (d, m) => {
+        m.put({ size: value.data.byteLength, version }, key);
         d.put(value, key);
       }),
       size: () => tx('readonly', (d, m) => m.getAll()).then(a => a.reduce((n, m) => n + m.size, 0)),
       clear: () => tx('readwrite', (d, m) => { d.clear(); m.clear(); }),
     };
 
-    // Other-origin GETs: network first and keep a copy; the copy answers when the network fails.
+    // Other-origin GETs: the stored copy first. Files from a moving repository are re-downloaded
+    // only after that repository's version changed: one check per repository per page load (3 s
+    // limit; no answer, e.g. offline, keeps the copies). Anything else (pinned Pyodide, versioned
+    // wheels) is downloaded once.
     const net = globalThis.fetch.bind(globalThis);
+    const PAGES = 'https://leohearts.github.io/aqara-ir-esphome/';
+    const repoOf = url => url.startsWith(PAGES) ? { id: PAGES, version: PAGES + 'version.txt' }
+      : (r => r && { id: r[1], version: `https://api.github.com/repos/${r[1]}/commits/HEAD` })(
+        url.match(/^https:\/\/(?:cdn\.jsdelivr\.net|data\.jsdelivr\.com\/v1\/packages)\/gh\/([^/@]+\/[^/@]+)@HEAD\b/));
+    const versions = new Map();
+    const versionOf = repo => {
+      if (!versions.has(repo.id)) versions.set(repo.id, net(repo.version, {
+        cache: 'no-store', signal: AbortSignal.timeout(3000),
+        headers: repo.id === PAGES ? {} : { accept: 'application/vnd.github.sha' },
+      }).then(r => r.ok ? r.text() : null).then(t => t?.trim() || null, () => null));
+      return versions.get(repo.id);
+    };
     globalThis.fetch = async (input, init) => {
       const url = new URL(input?.url ?? input, location.href).href;
       if (new URL(url).origin === location.origin || (init?.method ?? input?.method ?? 'GET') !== 'GET')
         return net(input, init);
-      let res, err;
-      try { res = await net(input, init); } catch (e) { err = e; }
-      if (res?.ok) {
-        const type = res.headers.get('content-type') ?? '';
-        const tag = `${res.headers.get('last-modified')}|${res.headers.get('content-length')}`;
-        const data = new Uint8Array(await res.arrayBuffer());
-        if (tag.includes('null') || tag !== await cache.tag(url)) await cache.put(url, { data, type }, tag);
-        return new Response(data, { headers: { 'content-type': type } });
+      const repo = repoOf(url);
+      const [meta, version] = await Promise.all([cache.meta(url), repo && versionOf(repo)]);
+      if (meta && (!version || meta.version === version)) {
+        const hit = await cache.get(url);
+        return new Response(hit.data, { headers: { 'content-type': hit.type } });
       }
-      const hit = await cache.get(url);
-      if (hit) return new Response(hit.data, { headers: { 'content-type': hit.type } });
-      if (res) return res;
-      throw err;
+      // jsDelivr caches @HEAD for hours; ask for the commit just resolved instead.
+      const from = repo && repo.id !== PAGES && version ? url.replace('@HEAD', '@' + version) : url;
+      const res = await net(from, { cache: 'no-store' }); // the copy lives in IndexedDB, not the HTTP cache
+      if (!res.ok) return res;
+      const type = res.headers.get('content-type') ?? '';
+      const data = new Uint8Array(await res.arrayBuffer());
+      await cache.put(url, { data, type }, version ?? null);
+      return new Response(data, { headers: { 'content-type': type } });
     };
 
     // ES modules through that fetch: imported from blob: URLs, so import.meta.url and ./relative
