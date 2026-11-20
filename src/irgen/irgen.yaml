@@ -13,7 +13,7 @@ external_components:
 
 remote_transmitter:
   id: ir_out
-  repeat: 2  # the AC misses ~30% of the P3's frames; two copies, so it may beep twice
+  repeat: 1  # copies per command; raise to 2-3 if the AC misses commands (it beeps once per copy)
 
 remote_receiver:
   id: ir_in

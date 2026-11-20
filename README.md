@@ -69,10 +69,10 @@ climate:
     receiver_id: ir_in
 ```
 
-`remote_transmitter: repeat: 2` sends every command twice. Measured with a microphone next to the AC
-(Gree YAP0F), the AC missed about 30% of single frames (27 of 40 received), regardless of content; with
-two copies 11 of 14 commands got through. The AC beeps twice when it catches both. A command must fit in
-998 timings (`repeat` × frame length; a Gree frame is 280).
+`remote_transmitter: repeat: N` sends every command N times (default 1). Measured with a microphone next
+to the AC (Gree YAP0F), the AC missed about 30-50% of single frames, regardless of content; with
+`repeat: 2`, 29 of 40 commands got through. The AC beeps once per copy it catches. A command must fit
+in 998 timings (`repeat` × frame length; a Gree frame is 280, so at most 3).
 
 ```sh
 git clone https://github.com/leohearts/aqara-ir-esphome && cd aqara-ir-esphome
