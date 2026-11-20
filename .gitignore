@@ -1,0 +1,7 @@
+.esphome/
+venv/
+__pycache__/
+src/irplug/libha_ir.so
+src/irplug/libirplug.so
+*.sqfs
+*.bin

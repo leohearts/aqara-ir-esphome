@@ -1,0 +1,26 @@
+esphome:
+  name: irgen
+
+host:
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [remote_transmitter, aqara_ir]
+  - source: github://ryanh7/esphome-custom-components
+    components: [gree_ext]
+
+remote_transmitter:
+  id: ir_out
+
+climate:
+  - platform: gree_ext
+    id: ac
+    name: AC
+    model: yap0f
+    transmitter_id: ir_out
+    supports_horizontal_swing: false
+
+aqara_ir:
+  climate_id: ac

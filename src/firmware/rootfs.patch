@@ -1,0 +1,40 @@
+--- a/etc/init.d/rcS
++++ b/etc/init.d/rcS
+@@ -61,8 +61,8 @@
+ telnetd
+ 
+ CUSTOM_POST_INIT=/data/scripts/post_init.sh
+-# if [ -x ${CUSTOM_POST_INIT} ]; then
+-#     ${CUSTOM_POST_INIT} &
+-# else
++if [ -x ${CUSTOM_POST_INIT} ]; then
++    ${CUSTOM_POST_INIT} &
++else
+ fw_manager.sh -r
+-# fi
++fi
+--- a/bin/fw_manager.sh
++++ b/bin/fw_manager.sh
+@@ -528,7 +528,9 @@
+ 	fi
+ 
+     if [ "$model" = "AC_P3" ]; then
+-        mha_ir -r /lib/libha_ir.so >/dev/null 2>&1 &
++        # Load the IR wrapper module from /data when present, else the stock one.
++        local ir_lib=/data/esphome-ir/libirplug.so; [ -f $ir_lib ] || ir_lib=/lib/libha_ir.so
++        mha_ir -r $ir_lib >/dev/null 2>&1 &
+     fi
+ 
+     # Waitting for other process to ready.
+--- a/bin/app_monitor.sh
++++ b/bin/app_monitor.sh
+@@ -511,7 +511,8 @@
+ {
+ 	if [ "$model" = "AC_P3" ]; then
+ 		red_echo "mha_ir leaved!"
+-		mha_ir -r /lib/libha_ir.so >/dev/null 2>&1 &
++		local ir_lib=/data/esphome-ir/libirplug.so; [ -f $ir_lib ] || ir_lib=/lib/libha_ir.so
++		mha_ir -r $ir_lib >/dev/null 2>&1 &
+ 	fi
+ 
+ 	return 0
