@@ -154,6 +154,7 @@ tiny page and moves files; ESPHome codegen (Pyodide) and the MIPS compile (Clang
 A build takes about 90 s; the first one downloads ~150 MB. Downloads stay in the browser's HTTP cache,
 compiled objects in IndexedDB (keyed by compiler args, sysroot, headers and source; the browser decides
 when to evict them), so a rebuild that only changes the YAML takes a few seconds of compiling.
+"Clear build cache (N MB)" empties the object cache; the HTTP cache is the browser's to clear.
 
 ```sh
 ./device/web/build.sh                       # -> device/web/tcpsvd-lite (busybox has no httpd/inetd)

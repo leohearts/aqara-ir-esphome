@@ -1,5 +1,7 @@
 // Web UI for aqara-ir-esphome. Loaded by the small index.html the P3 serves (device/web/index.html);
 // `device` is that page's origin, which provides /api/* (device/web/handler.sh).
+import { objectCache } from './cache.js';
+
 const MAGIC = '1189998819';
 const hex = s => [...new TextEncoder().encode(s)].map(b => b.toString(16).padStart(2, '0')).join('') + '00';
 const unhex = h => new TextDecoder().decode(new Uint8Array((h.match(/../g) || []).map(x => parseInt(x, 16)))).replace(/\0+$/, '');
@@ -47,6 +49,7 @@ export async function start(base, device) {
       <textarea id=yaml spellcheck=false></textarea>
       <button id=save>Save config</button>
       <button id=build class=primary>Build in browser and install</button>
+      <button id=clear-cache>Clear build cache</button>
       <pre id=log hidden></pre>
     </section></main>`;
   const $ = id => document.getElementById(id);
@@ -63,9 +66,13 @@ export async function start(base, device) {
       <dt>IR UART tx bytes</dt><dd>${s.ir_uart_tx}</dd>`;
     if (!esphome && !$('stock-id').value) $('stock-id').value = rid;
   }
+  // Downloads sit in the browser's HTTP cache, which pages cannot clear; this is the object cache.
+  const showCacheSize = async () =>
+    $('clear-cache').textContent = `Clear build cache (${((await objectCache.size()) / 1048576).toFixed(1)} MB)`;
 
   $('yaml').value = await api('/api/config');
   await refresh();
+  await showCacheSize();
 
   $('use-esphome').onclick = async () => { log(await api('/api/use-esphome', { method: 'POST' })); setTimeout(refresh, 3000); };
   $('use-stock').onclick = async () => {
@@ -74,6 +81,7 @@ export async function start(base, device) {
     log(await api('/api/use-stock', { method: 'POST', body: hex(id) })); setTimeout(refresh, 3000);
   };
   $('save').onclick = async () => log(await api('/api/config', { method: 'PUT', body: $('yaml').value }));
+  $('clear-cache').onclick = async () => { await objectCache.clear(); await showCacheSize(); };
 
   $('build').onclick = async () => {
     $('build').disabled = true;
@@ -98,6 +106,7 @@ export async function start(base, device) {
       log('ERROR: ' + e.message);
     } finally {
       $('build').disabled = false;
+      await showCacheSize();
     }
   };
 }
