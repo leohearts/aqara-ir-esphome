@@ -31,7 +31,7 @@ encoder, and presses on the physical remote are decoded by ESPHome so the app sh
 
 ## Install
 
-**Step 1: firmware image (optional).** The stock 4.5.20 firmware never runs anything from `/data` at boot. This image runs `/data/scripts/post_init.sh` and starts `mha_ir` with the plugin, so everything comes back after a reboot by itself. Flashing carries risk: an interrupted flash or a wrong image can leave the P3 unbootable (the script checks the md5 of the base image, `fw_update` checks the crc). **Skip this step** if your P3 already runs firmware that executes `/data/scripts/post_init.sh` at boot, or if you don't mind running `/data/esphome-ir/start.sh` after every reboot.
+**Step 1: plugin-capable firmware (optional, risky).** The stock firmware runs nothing from `/data` at boot; this image starts the plugin and the web UI by itself after every reboot. A failed flash or a wrong image can leave the P3 unbootable. **Skip it** if your firmware already runs `/data/scripts/post_init.sh` at boot, or if you will run `/data/esphome-ir/start.sh` after each reboot.
 
 ```sh
 # PC: download the community image, patch it, build rootfs_ir.bin
