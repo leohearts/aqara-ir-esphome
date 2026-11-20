@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Aqara P3 · ESPHome IR</title>
+<p>Loading the web UI from GitHub Pages…</p>
+<script type="module">
+  // The P3 only serves this page and /api/*; the UI and the WebAssembly toolchain come from GitHub Pages.
+  const base = 'https://leohearts.github.io/aqara-ir-esphome/';
+  import(base + 'app.js').then(m => m.start(base, location.origin))
+    .catch(e => document.body.textContent = 'Could not load ' + base + 'app.js: ' + e);
+</script>

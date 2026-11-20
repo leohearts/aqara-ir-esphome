@@ -5,3 +5,6 @@ src/irplug/libha_ir.so
 src/irplug/libirplug.so
 *.sqfs
 *.bin
+docs/clang/
+docs/sysroot.tar.gz
+node_modules/
