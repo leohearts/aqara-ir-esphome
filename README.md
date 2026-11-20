@@ -63,7 +63,7 @@ cd /tmp && tar xzf p3.tgz && sh aqara-ir-esphome/install.sh
 
 `install.sh` copies everything to `/data/esphome-ir/`, keeps your `irgen.yaml` if there is one, saves the current remote id to `/data/esphome-ir/stock_r_id` (and prints it, you need it for "Use stock encoder"), switches to the ESPHome encoder, starts the plugin and the web UI, and prints the address to open.
 
-After a reboot without the Step 1 image, run this on the P3 (telnet):
+If you skipped Step 1, the plugin and the web UI stop when the P3 reboots. Start them again over telnet:
 
 ```sh
 /data/esphome-ir/start.sh
