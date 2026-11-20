@@ -38,16 +38,16 @@ case "$method $target" in
 "GET /api/config")
   reply "200 OK" "text/yaml; charset=utf-8" $D/irgen.yaml ;;
 "PUT /api/config")
-  body $D/irgen.yaml.new && mv $D/irgen.yaml.new $D/irgen.yaml && text "200 OK" saved ;;
+  body $D/irgen.yaml.$$ && mv $D/irgen.yaml.$$ $D/irgen.yaml && text "200 OK" saved ;;
 "PUT /api/irgen")
   # Accept the new binary only if it runs and prints timings for a test state.
-  body /tmp/irgen.new && chmod +x /tmp/irgen.new
-  n=$(ESPHOME_PREFDIR=/tmp AQARA_AC=0,0,26,0,0 /tmp/irgen.new 2>/dev/null | tr ',' '\n' | grep -c '^[0-9]')
+  body $IN && chmod +x $IN
+  n=$(ESPHOME_PREFDIR=/tmp AQARA_AC=0,0,26,0,0 $IN 2>/dev/null | tr ',' '\n' | grep -c '^[0-9]')
   if [ "$n" -gt 0 ] && [ $((n % 2)) -eq 0 ]; then
-    cp /tmp/irgen.new $D/irgen.tmp && mv $D/irgen.tmp $D/irgen && rm /tmp/irgen.new
+    cp $IN $D/irgen.$$ && mv $D/irgen.$$ $D/irgen
     text "200 OK" "installed, test frame has $n timings, md5 $(md5sum $D/irgen | cut -d' ' -f1)"
   else
-    rm -f /tmp/irgen.new; text "400 Bad Request" "rejected: test run printed $n timings"
+    text "400 Bad Request" "rejected: test run printed $n timings"
   fi ;;
 "POST /api/use-esphome")
   setprop persist.app.ir.r_id $MAGIC_HEX; killall mha_ir; text "200 OK" "r_id set to 1189998819, mha_ir restarting" ;;

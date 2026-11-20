@@ -6,6 +6,7 @@
 //   runLLVM,            // @yowasp/clang runLLVM built with the Mips backend
 //   asset(path),        // -> Promise<Uint8Array> for files next to this script
 //   log(text),          // progress output
+//   cache,              // optional {get(key), put(key, Uint8Array)} for compiled objects
 // }
 
 const ESPHOME_VERSION = '2026.11.0';
@@ -19,6 +20,27 @@ const BUNDLED_COMPONENTS = {
 };
 
 const dec = new TextDecoder();
+const enc = new TextEncoder();
+
+// Two cyrb53-style 53-bit hashes -> 28 hex chars. crypto.subtle is not available on the
+// http:// device page.
+function hash(parts) {
+  let out = '';
+  for (const seed of [1, 2]) {
+    let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+    for (const p of parts) for (let i = 0; i < p.length; i++) {
+      h1 = Math.imul(h1 ^ p[i], 2654435761);
+      h2 = Math.imul(h2 ^ p[i], 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    out += (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+  }
+  return out;
+}
+
+// Hash input for named byte strings; names and lengths keep the boundaries unambiguous.
+const named = entries => entries.flatMap(([name, b]) => [enc.encode(`${name}\0${b.length}\0`), b]);
 
 // Minimal ustar reader for sysroot.tar.gz -> Tree {name: Uint8Array | Tree}.
 async function untarGz(bytes) {
@@ -56,10 +78,12 @@ function readTree(FS, path) {
   return tree;
 }
 
-function* cppFiles(tree, prefix = '') {
-  for (const [name, v] of Object.entries(tree)) {
-    if (v instanceof Uint8Array) { if (name.endsWith('.cpp')) yield prefix + name; }
-    else yield* cppFiles(v, `${prefix}${name}/`);
+// Tree -> [path, bytes] pairs, in a stable order.
+function* walk(tree, prefix = '') {
+  for (const name of Object.keys(tree).sort()) {
+    const v = tree[name];
+    if (v instanceof Uint8Array) yield [prefix + name, v];
+    else yield* walk(v, `${prefix}${name}/`);
   }
 }
 
@@ -119,28 +143,41 @@ YAML().load(open('/work/config.yaml'))['esphome']['name']`);
   return readTree(FS, `/work/.esphome/build/${name}/src`);
 }
 
-export async function compileAndLink(src, { runLLVM, asset, log, jobs = null }) {
-  const [cc1, link, sysroot] = await Promise.all([
-    asset('cc1-args.json').then(b => JSON.parse(dec.decode(b))),
+export async function compileAndLink(src, { runLLVM, asset, log, cache = null, jobs = null }) {
+  const [cc1Raw, link, sysrootGz] = await Promise.all([
+    asset('cc1-args.json'),
     asset('link-args.json').then(b => JSON.parse(dec.decode(b))),
-    asset('sysroot.tar.gz').then(untarGz),
+    asset('sysroot.tar.gz'),
   ]);
+  const cc1 = JSON.parse(dec.decode(cc1Raw));
+  const sysroot = await untarGz(sysrootGz);
   const files = { sysroot: sysroot.sysroot ?? sysroot, work: { src } };
-  const sources = [...cppFiles(src)];
+  const all = [...walk(src)];
+  const sources = all.filter(([p]) => p.endsWith('.cpp')).map(([p]) => p);
+  // An object depends on the compiler args, the sysroot, every header and its own source.
+  const common = cache && hash(named([['cc1', cc1Raw], ['sysroot', sysrootGz],
+    ...all.filter(([p]) => !p.endsWith('.cpp'))]));
   const objs = {};
   let done = 0;
   // The object goes to stdout (`-o -`): writing a file in YoWASP's virtual FS fails with
   // "IO failure on output stream: Invalid argument" (seek/rename), a pipe makes clang buffer it.
   const one = async (rel) => {
-    const args = cc1.map(a => a === '{src}' ? `/work/src/${rel}` : a === '{out}' ? '-'
-      : a === '{name}' ? rel.split('/').at(-1) : a);
-    const chunks = [];
-    await runLLVM(['clang', ...args], files, {
-      stdout: b => b && chunks.push(new Uint8Array(b)),
-      stderr: b => b && log(dec.decode(b)),
-    });
-    objs[`${rel.replaceAll('/', '_')}.o`] = new Uint8Array(await new Blob(chunks).arrayBuffer());
-    log(`compiled ${++done}/${sources.length} ${rel}`);
+    const key = cache && `obj:${common}:${hash(named([[rel, getPath(src, rel)]]))}`;
+    const cached = key && await cache.get(key);
+    let obj = cached;
+    if (!obj) {
+      const args = cc1.map(a => a === '{src}' ? `/work/src/${rel}` : a === '{out}' ? '-'
+        : a === '{name}' ? rel.split('/').at(-1) : a);
+      const chunks = [];
+      await runLLVM(['clang', ...args], files, {
+        stdout: b => b && chunks.push(new Uint8Array(b)),
+        stderr: b => b && log(dec.decode(b)),
+      });
+      obj = new Uint8Array(await new Blob(chunks).arrayBuffer());
+      if (key) await cache.put(key, obj);
+    }
+    objs[`${rel.replaceAll('/', '_')}.o`] = obj;
+    log(`${cached ? 'cached' : 'compiled'} ${++done}/${sources.length} ${rel}`);
   };
   // jobs: optional function(list, worker) to fan out; default sequential.
   if (jobs) await jobs(sources, one); else for (const rel of sources) await one(rel);
