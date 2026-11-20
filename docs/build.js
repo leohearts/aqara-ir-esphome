@@ -11,9 +11,11 @@
 const ESPHOME_VERSION = '2026.11.0';
 const PY_DEPS = ['voluptuous', 'click', 'colorama', 'platformdirs', 'tzlocal', 'tzdata', 'ruamel.yaml',
   'filelock', 'puremagic', 'argcomplete', 'paho-mqtt', 'requests', 'pyserial'];
+// From src/irgen/components (copied into the Pages site by .github/workflows/pages.yml).
 const BUNDLED_COMPONENTS = {
   aqara_ir: ['__init__.py', 'aqara_ir.h'],
   remote_transmitter: ['__init__.py', 'remote_transmitter.h'],
+  remote_receiver: ['__init__.py', 'remote_receiver.h'],
 };
 
 const dec = new TextDecoder();

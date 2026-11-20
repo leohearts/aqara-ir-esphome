@@ -25,16 +25,20 @@ runs ESPHome *on the P3* and lets it do the one job the cloud was needed for.
 ## What it does
 
 Everything stock stays: HomeKit, Mi Home, automations, power metering, the IR queue and module.
-Only "AC state -> IR timings" is replaced, and only when the remote id is the magic **1189998819**
-(0118 999 881 9, cut to fit an int32). Any other id = stock behaviour.
+Only "AC state <-> IR timings" is replaced, and only when the remote id is the magic **1189998819**
+(0118 999 881 9, cut to fit an int32). Any other id = stock behaviour. Both directions: the app sends
+through ESPHome's encoder, and presses on the physical remote are decoded by ESPHome so the app shows
+the real AC state.
 
 - **`irgen`**: a normal ESPHome project built for the `host` platform, cross-compiled to static MIPS32r2.
-  One `climate_ir` entity (your AC), plus `aqara_ir` (turns `$AQARA_AC` into a `ClimateCall`) and a
-  `remote_transmitter` that prints timings to stdout instead of toggling a GPIO.
+  One `climate_ir` entity (your AC), plus `aqara_ir` (turns `$AQARA_AC` into a `ClimateCall`, or decodes
+  `$AQARA_RX`), a `remote_transmitter` that prints timings to stdout instead of toggling a GPIO and a
+  `remote_receiver` that feeds received timings to the climate's decoder.
 - **`libirplug.so`**: loaded by `mha_ir -r` in place of `/lib/libha_ir.so` (and linked against it).
-  Its `ha_ir_open` redirects libha_ir's GOT slot for `protocol_ac_product_ircode` to itself, then calls
-  the stock one. (uClibc 0.9.33 ignores `LD_PRELOAD` and MIPS binds local symbols, so plain interposition
-  doesn't work.)
+  Its `ha_ir_open` redirects libha_ir's GOT slots for `protocol_ac_product_ircode` (send) and
+  `protocol_ac_sync` (receive) to itself, then calls the stock one. (uClibc 0.9.33 ignores `LD_PRELOAD`
+  and MIPS binds local symbols, so plain interposition doesn't work.) The last received frame is kept in
+  `/tmp/irplug.rx` for debugging.
 - **Firmware patch** (`src/firmware/rootfs.patch`): makes `rcS` run `/data/scripts/post_init.sh` and
   makes `fw_manager.sh` / `app_monitor.sh` start `mha_ir` with the plugin. Optional; without it the
   plugin lasts until `mha_ir` restarts or the P3 reboots.
@@ -53,7 +57,8 @@ T target °C, S fan (0 auto, 1 low, 2 med, 3 high), D swing (0 = on).
 
 ### 1. Pick your AC and build
 
-Edit `climate:` in `src/irgen/irgen.yaml` (keep `id: ac` and `transmitter_id: ir_out`):
+Edit `climate:` in `src/irgen/irgen.yaml` (keep `id: ac`, `transmitter_id: ir_out`, and
+`receiver_id: ir_in` if the platform can decode its remote; drop that line if it can't):
 
 ```yaml
 climate:
@@ -61,6 +66,7 @@ climate:
     id: ac
     name: AC
     transmitter_id: ir_out
+    receiver_id: ir_in
 ```
 
 ```sh

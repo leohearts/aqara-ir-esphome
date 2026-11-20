@@ -7,12 +7,15 @@ external_components:
   - source:
       type: local
       path: components
-    components: [remote_transmitter, aqara_ir]
+    components: [remote_transmitter, remote_receiver, aqara_ir]
   - source: github://ryanh7/esphome-custom-components
     components: [gree_ext]
 
 remote_transmitter:
   id: ir_out
+
+remote_receiver:
+  id: ir_in
 
 climate:
   - platform: gree_ext
@@ -20,7 +23,9 @@ climate:
     name: AC
     model: yap0f
     transmitter_id: ir_out
+    receiver_id: ir_in        # decode the physical remote (optional)
     supports_horizontal_swing: false
 
 aqara_ir:
   climate_id: ac
+  receiver_id: ir_in

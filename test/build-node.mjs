@@ -8,7 +8,9 @@ import { codegen, compileAndLink } from '../docs/build.js';
 const [yamlPath, outPath, clangBundle] = process.argv.slice(2);
 const docs = new URL('../docs/', import.meta.url);
 const deps = {
-  asset: async p => new Uint8Array(fs.readFileSync(new URL(p, docs))),
+  // the Pages workflow copies src/irgen/components to docs/components; read them from src here
+  asset: async p => new Uint8Array(fs.readFileSync(p.startsWith('components/')
+    ? new URL(`../src/irgen/${p}`, import.meta.url) : new URL(p, docs))),
   log: t => console.log(t.trimEnd()),
 };
 const require = createRequire(path.resolve('package.json'));
