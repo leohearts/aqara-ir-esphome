@@ -202,7 +202,7 @@ Porting to another `libha_ir.so`: set the offsets in `irplug.c`:
 
 ## Credits
 
-[ESPHome](https://esphome.io), [ryanh7/esphome-custom-components](https://github.com/ryanh7/esphome-custom-components) (`gree_ext`),
+[ESPHome](https://esphome.io),
 [niceboygithub/AqaraM1SM2fw](https://github.com/niceboygithub/AqaraM1SM2fw) (firmware images and tools),
 [YoWASP/clang](https://github.com/YoWASP/clang) (the in-browser compiler).
 
