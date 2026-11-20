@@ -21,11 +21,21 @@ pre{background:#f6f8fa;border:1px solid #d8dee4;border-radius:6px;padding:8px;ma
 .ok{color:#1a7f37}.warn{color:#9a6700}`;
 
 export async function start(base, device) {
-  const api = (path, opts) => fetch(device + path, opts).then(async r => {
-    const body = await r.text();
-    if (!r.ok) throw new Error(body);
-    return body;
-  });
+  // The P3 serves one connection at a time (busybox nc in a loop), so a request that arrives
+  // while nc restarts is refused: retry network errors, never HTTP errors.
+  const api = async (path, opts) => {
+    for (let i = 0; ; i++) {
+      let r;
+      try { r = await fetch(device + path, opts); } catch (e) {
+        if (i >= 25) throw e;
+        await new Promise(res => setTimeout(res, 200));
+        continue;
+      }
+      const body = await r.text();
+      if (!r.ok) throw new Error(body);
+      return body;
+    }
+  };
   document.head.insertAdjacentHTML('beforeend', `<style>${CSS}</style>`);
   document.body.innerHTML = `<main>
     <h1>Aqara P3 · ESPHome IR</h1>
